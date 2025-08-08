@@ -1,0 +1,155 @@
+{% extends 'base.html' %}
+
+{% block title %}Files - Attendance Management System{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2 class="text-primary">
+                <i class="fas fa-list me-2"></i>
+                Processed Files
+            </h2>
+            <a href="{% url 'processor:home' %}" class="btn btn-primary">
+                <i class="fas fa-plus me-2"></i>
+                Upload New File
+            </a>
+        </div>
+
+        <!-- Files Table -->
+        <div class="card shadow-sm border-0">
+            <div class="card-body">
+                {% if files %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>File Name</th>
+                                    <th>Status</th>
+                                    <th>Uploaded</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for file in files %}
+                                <tr>
+                                    <td>
+                                        <i class="fas fa-file-excel text-primary me-2"></i>
+                                        <strong>{{ file.filename }}</strong>
+                                    </td>
+                                    <td>
+                                        {% if file.status == 'completed' %}
+                                            <span class="badge bg-success">Completed</span>
+                                        {% elif file.status == 'processing' %}
+                                            <span class="badge bg-warning">Processing</span>
+                                        {% elif file.status == 'failed' %}
+                                            <span class="badge bg-danger">Failed</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Pending</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ file.created_at|date:"M d, Y H:i" }}</td>
+                                    <td>
+                                                                                        <div class="btn-group" role="group">
+                                                    <a href="{% url 'processor:file_detail' file.id %}" class="btn btn-sm btn-outline-primary" title="View Details">
+                                                        <i class="fas fa-eye"></i>
+                                                    </a>
+                                                    <a href="{% url 'processor:preview_data' file.id %}" class="btn btn-sm btn-outline-info" title="Preview Data">
+                                                        <i class="fas fa-table"></i>
+                                                    </a>
+                                                    {% if file.status == 'completed' and file.processed_file %}
+                                                        <a href="{% url 'processor:download' file.id %}" class="btn btn-sm btn-outline-success" title="Download">
+                                                            <i class="fas fa-download"></i>
+                                                        </a>
+                                                    {% endif %}
+                                                    <button type="button" class="btn btn-sm btn-outline-danger" title="Delete" 
+                                                            onclick="deleteFile({{ file.id }}, '{{ file.filename }}')">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pagination -->
+                    {% if is_paginated %}
+                    <nav aria-label="Page navigation" class="mt-4">
+                        <ul class="pagination justify-content-center">
+                            {% if page_obj.has_previous %}
+                                <li class="page-item">
+                                    <a class="page-link" href="?page=1">&laquo; First</a>
+                                </li>
+                                <li class="page-item">
+                                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}">Previous</a>
+                                </li>
+                            {% endif %}
+
+                            <li class="page-item active">
+                                <span class="page-link">
+                                    Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+                                </span>
+                            </li>
+
+                            {% if page_obj.has_next %}
+                                <li class="page-item">
+                                    <a class="page-link" href="?page={{ page_obj.next_page_number }}">Next</a>
+                                </li>
+                                <li class="page-item">
+                                    <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}">Last &raquo;</a>
+                                </li>
+                            {% endif %}
+                        </ul>
+                    </nav>
+                    {% endif %}
+                {% else %}
+                    <div class="text-center py-5">
+                        <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                        <h4 class="text-muted">No files uploaded yet</h4>
+                        <p class="text-muted">Upload your first Excel file to get started.</p>
+                        <a href="{% url 'processor:home' %}" class="btn btn-primary">
+                            <i class="fas fa-upload me-2"></i>
+                            Upload File
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function deleteFile(fileId, fileName) {
+    if (!confirm('Are you sure you want to delete "' + fileName + '"? This action cannot be undone.')) {
+        return;
+    }
+    $.ajax({
+        url: '/app/files/' + fileId + '/delete/',
+        type: 'POST',
+        headers: { 'X-CSRFToken': getCookie('csrftoken') },
+        success: function() { window.location.reload(); },
+        error: function() { alert('Delete failed'); }
+    });
+}
+
+function getCookie(name) {
+    var cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        var cookies = document.cookie.split(';');
+        for (var i = 0; i < cookies.length; i++) {
+            var cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+</script>
+{% endblock %} 

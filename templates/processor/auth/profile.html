@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+
+{% block title %}Profile - Attendance Management{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="card shadow-lg border-0">
+            <div class="card-header bg-primary text-white text-center">
+                <h4 class="mb-0">
+                    <i class="fas fa-user-circle me-2"></i>
+                    User Profile
+                </h4>
+            </div>
+            <div class="card-body p-4">
+                <div class="row">
+                    <div class="col-md-4 text-center mb-3">
+                        <div class="avatar-placeholder">
+                            <i class="fas fa-user fa-4x text-primary"></i>
+                        </div>
+                    </div>
+                    <div class="col-md-8">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Full Name:</label>
+                            <p class="form-control-plaintext">{{ user.get_full_name }}</p>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Email Address:</label>
+                            <p class="form-control-plaintext">{{ user.email }}</p>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Account Type:</label>
+                            <p class="form-control-plaintext">
+                                {% if user.is_superuser %}
+                                    <span class="badge bg-danger">Super Admin</span>
+                                {% elif user.is_staff %}
+                                    <span class="badge bg-warning">Staff</span>
+                                {% else %}
+                                    <span class="badge bg-info">User</span>
+                                {% endif %}
+                            </p>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Date Joined:</label>
+                            <p class="form-control-plaintext">{{ user.date_joined|date:"F d, Y" }}</p>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Last Login:</label>
+                            <p class="form-control-plaintext">{{ user.last_login|date:"F d, Y H:i" }}</p>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Account Status:</label>
+                            <p class="form-control-plaintext">
+                                {% if user.is_active %}
+                                    <span class="badge bg-success">Active</span>
+                                {% else %}
+                                    <span class="badge bg-danger">Inactive</span>
+                                {% endif %}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                <hr class="my-4">
+                
+                <div class="d-grid gap-2">
+                    <a href="{% url 'processor:change_password' %}" class="btn btn-primary">
+                        <i class="fas fa-key me-2"></i>
+                        Change Password
+                    </a>
+                    <a href="{% url 'processor:home' %}" class="btn btn-outline-secondary">
+                        <i class="fas fa-home me-2"></i>
+                        Back to Home
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

@@ -1,0 +1,269 @@
+{% extends 'base.html' %}
+
+{% block title %}File Details - Attendance Management System{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2 class="text-primary">
+                <i class="fas fa-file-alt me-2"></i>
+                File Details
+            </h2>
+            <a href="{% url 'processor:file_list' %}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left me-2"></i>
+                Back to Files
+            </a>
+        </div>
+
+        <!-- File Information -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    File Information
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Original File:</strong> {{ file.filename }}</p>
+                        <p><strong>Uploaded:</strong> {{ file.created_at|date:"M d, Y H:i" }}</p>
+                        <p><strong>Last Updated:</strong> {{ file.updated_at|date:"M d, Y H:i" }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Status:</strong> 
+                            {% if file.status == 'completed' %}
+                                <span class="badge bg-success">Completed</span>
+                            {% elif file.status == 'processing' %}
+                                <span class="badge bg-warning">Processing</span>
+                            {% elif file.status == 'failed' %}
+                                <span class="badge bg-danger">Failed</span>
+                            {% else %}
+                                <span class="badge bg-secondary">Pending</span>
+                            {% endif %}
+                        </p>
+                        {% if file.processed_file %}
+                            <p><strong>Processed File:</strong> {{ file.processed_filename }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Messages -->
+        {% if file.status == 'failed' and file.error_message %}
+        <div class="alert alert-danger">
+            <h6><i class="fas fa-exclamation-triangle me-2"></i>Processing Error</h6>
+            <p class="mb-0">{{ file.error_message }}</p>
+        </div>
+        {% endif %}
+
+        {% if file.status == 'completed' %}
+        <div class="alert alert-success">
+            <h6><i class="fas fa-check-circle me-2"></i>Processing Completed</h6>
+            <p class="mb-0">File has been successfully processed and is ready for download.</p>
+        </div>
+        {% endif %}
+
+        <!-- Actions -->
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-tools me-2"></i>
+                    Actions
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex gap-2 flex-wrap">
+                    {% if file.status == 'pending' or file.status == 'failed' %}
+                        <button class="btn btn-primary" onclick="processFile({{ file.id }})">
+                            <i class="fas fa-play me-2"></i>
+                            {% if file.status == 'failed' %}Retry Processing{% else %}Start Processing{% endif %}
+                        </button>
+                    {% endif %}
+                    
+                    {% if file.status == 'completed' and file.processed_file %}
+                        <a href="{% url 'processor:download' file.id %}" class="btn btn-success">
+                            <i class="fas fa-download me-2"></i>
+                            Download Processed File
+                        </a>
+                    {% endif %}
+                    
+                    <a href="{% url 'processor:preview_data' file.id %}" class="btn btn-info">
+                        <i class="fas fa-eye me-2"></i>
+                        Preview Data
+                    </a>
+                    
+                    <a href="{% url 'processor:generate_segregation_report' file.id %}" class="btn btn-warning">
+                        <i class="fas fa-users me-2"></i>
+                        Generate Staff Segregation Report
+                    </a>
+                    
+                    <a href="{% url 'processor:get_detailed_leave_details' file.id %}" class="btn btn-info">
+                        <i class="fas fa-calendar-alt me-2"></i>
+                        Get Detailed Leave Details
+                    </a>
+                    
+                    <a href="{% url 'processor:generate_detailed_attendance_report' file.id %}" class="btn btn-primary">
+                        <i class="fas fa-file-excel me-2"></i>
+                        Generate Detailed Attendance Report
+                    </a>
+                    
+                    <a href="{% url 'processor:generate_monthly_wages_report' file.id %}" class="btn btn-success">
+                        <i class="fas fa-money-bill-wave me-2"></i>
+                        Generate Monthly Wages Report
+                    </a>
+                    
+                    <button class="btn btn-danger" onclick="deleteFile({{ file.id }}, '{{ file.filename }}')">
+                        <i class="fas fa-trash me-2"></i>
+                        Delete File
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function processFile(fileId) {
+    if (confirm('Start processing this file?')) {
+        $.ajax({
+            url: '{% url "processor:process_file" 0 %}'.replace('0', fileId),
+            method: 'POST',
+            data: {
+                csrfmiddlewaretoken: '{{ csrf_token }}'
+            },
+            success: function(response) {
+                if (response.success) {
+                    alert('Processing started successfully!');
+                    location.reload();
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            },
+            error: function() {
+                alert('An error occurred while processing the file.');
+            }
+        });
+    }
+}
+
+function deleteFile(fileId, fileName) {
+    if (!confirm('Are you sure you want to delete "' + fileName + '"? This action cannot be undone.')) { return; }
+    $.ajax({
+        url: '/app/files/' + fileId + '/delete/',
+        type: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+        success: function(){ window.location.href = '{% url "processor:file_list" %}'; },
+        error: function(){ alert('Delete failed'); }
+    });
+}
+
+function getLeaveDetails(fileId) {
+    if (confirm('Get detailed leave details for all employees?')) {
+        $.ajax({
+            url: '{% url "processor:get_detailed_leave_details" 0 %}'.replace('0', fileId),
+            method: 'GET',
+            success: function(response) {
+                if (response.success) {
+                    // Display the leave details in a modal or alert
+                    displayLeaveDetails(response.leave_details);
+                } else {
+                    alert('Error: ' + response.error);
+                }
+            },
+            error: function() {
+                alert('An error occurred while getting leave details.');
+            }
+        });
+    }
+}
+
+function displayLeaveDetails(leaveDetails) {
+    let detailsHtml = '<div style="max-height: 400px; overflow-y: auto;">';
+    detailsHtml += '<h4>Detailed Leave Details</h4>';
+    
+    for (let employeeId in leaveDetails) {
+        const employee = leaveDetails[employeeId];
+        detailsHtml += '<div style="border: 1px solid #ddd; margin: 10px 0; padding: 10px; border-radius: 5px;">';
+        detailsHtml += '<h5>' + employee.employee_name + ' (' + employeeId + ')</h5>';
+        detailsHtml += '<p><strong>Designation:</strong> ' + employee.designation + '</p>';
+        detailsHtml += '<p><strong>Present Days:</strong> ' + employee.present_days + '</p>';
+        detailsHtml += '<p><strong>Absent Days:</strong> ' + employee.absent_days + '</p>';
+        detailsHtml += '<p><strong>Weekly Off Days:</strong> ' + employee.weekly_off_days + '</p>';
+        detailsHtml += '<p><strong>Allowance Days:</strong> ' + employee.allowance_days + '</p>';
+        detailsHtml += '<p><strong>Sick Leave Days:</strong> ' + employee.sick_leave_days + '</p>';
+        detailsHtml += '<p><strong>Casual Leave Days:</strong> ' + employee.casual_leave_days + '</p>';
+        detailsHtml += '<p><strong>Personal Leave Days:</strong> ' + employee.personal_leave_days + '</p>';
+        detailsHtml += '<p><strong>Substitute Leave Days:</strong> ' + employee.substitute_leave_days + '</p>';
+        detailsHtml += '<p><strong>Duty Leave Days:</strong> ' + employee.duty_leave_days + '</p>';
+        
+        // Add dates if any
+        if (employee.present_dates.length > 0) {
+            detailsHtml += '<p><strong>Present Dates:</strong> ' + employee.present_dates.join(', ') + '</p>';
+        }
+        if (employee.absent_dates.length > 0) {
+            detailsHtml += '<p><strong>Absent Dates:</strong> ' + employee.absent_dates.join(', ') + '</p>';
+        }
+        if (employee.weekly_off_dates.length > 0) {
+            detailsHtml += '<p><strong>Weekly Off Dates:</strong> ' + employee.weekly_off_dates.join(', ') + '</p>';
+        }
+        if (employee.allowance_dates.length > 0) {
+            detailsHtml += '<p><strong>Allowance Dates:</strong> ' + employee.allowance_dates.join(', ') + '</p>';
+        }
+        if (employee.sick_leave_dates.length > 0) {
+            detailsHtml += '<p><strong>Sick Leave Dates:</strong> ' + employee.sick_leave_dates.join(', ') + '</p>';
+        }
+        if (employee.casual_leave_dates.length > 0) {
+            detailsHtml += '<p><strong>Casual Leave Dates:</strong> ' + employee.casual_leave_dates.join(', ') + '</p>';
+        }
+        if (employee.personal_leave_dates.length > 0) {
+            detailsHtml += '<p><strong>Personal Leave Dates:</strong> ' + employee.personal_leave_dates.join(', ') + '</p>';
+        }
+        if (employee.substitute_leave_dates.length > 0) {
+            detailsHtml += '<p><strong>Substitute Leave Dates:</strong> ' + employee.substitute_leave_dates.join(', ') + '</p>';
+        }
+        if (employee.duty_leave_dates.length > 0) {
+            detailsHtml += '<p><strong>Duty Leave Dates:</strong> ' + employee.duty_leave_dates.join(', ') + '</p>';
+        }
+        detailsHtml += '</div>';
+    }
+    
+    detailsHtml += '</div>';
+    
+    // Create a modal to display the details
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    `;
+    
+    const modalContent = document.createElement('div');
+    modalContent.style.cssText = `
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        max-width: 80%;
+        max-height: 80%;
+        overflow-y: auto;
+    `;
+    
+    modalContent.innerHTML = detailsHtml + '<button onclick="this.parentElement.parentElement.remove()" style="margin-top: 10px; padding: 5px 10px;">Close</button>';
+    
+    modal.appendChild(modalContent);
+    document.body.appendChild(modal);
+}
+</script>
+{% endblock %} 

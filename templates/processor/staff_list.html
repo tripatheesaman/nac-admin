@@ -1,0 +1,240 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Staff Management{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1 class="h3 mb-0">
+                    <i class="fas fa-users text-primary me-2"></i>
+                    Staff Management
+                </h1>
+                <a href="{% url 'processor:staff_add' %}" class="btn btn-primary">
+                    <i class="fas fa-plus me-2"></i>Add New Staff
+                </a>
+            </div>
+
+            <!-- Filter Form -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">
+                        <i class="fas fa-filter text-primary me-2"></i>Filters
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="get" class="row g-3">
+                        <div class="col-md-2">
+                            {{ filter_form.name.label_tag }}
+                            {{ filter_form.name }}
+                        </div>
+                        <div class="col-md-2">
+                            {{ filter_form.staffid.label_tag }}
+                            {{ filter_form.staffid }}
+                        </div>
+                        <div class="col-md-2">
+                            {{ filter_form.section.label_tag }}
+                            {{ filter_form.section }}
+                        </div>
+                        <div class="col-md-2">
+                            {{ filter_form.designation.label_tag }}
+                            {{ filter_form.designation }}
+                        </div>
+                        <div class="col-md-2">
+                            {{ filter_form.level.label_tag }}
+                            {{ filter_form.level }}
+                        </div>
+                        <div class="col-md-2">
+                            {{ filter_form.weekly_off.label_tag }}
+                            {{ filter_form.weekly_off }}
+                        </div>
+                        <div class="col-md-2">
+                            {{ filter_form.type_of_employment.label_tag }}
+                            {{ filter_form.type_of_employment }}
+                        </div>
+                        <div class="col-md-2">
+                            {{ filter_form.priority.label_tag }}
+                            {{ filter_form.priority }}
+                        </div>
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-primary me-2">
+                                <i class="fas fa-search me-2"></i>Filter
+                            </button>
+                            <a href="{% url 'processor:staff_list' %}" class="btn btn-secondary">
+                                <i class="fas fa-times me-2"></i>Clear
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Staff List -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">
+                        <i class="fas fa-list text-primary me-2"></i>Staff List
+                        <span class="badge bg-primary ms-2">{{ staff_list|length }} records</span>
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    {% if staff_list %}
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th>Staff ID</th>
+                                        <th>Name</th>
+                                        <th>Section</th>
+                                        <th>Designation</th>
+                                        <th>Level</th>
+                                        <th>Weekly Off</th>
+                                        <th>Employment Type</th>
+                                        <th>Priority</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for staff in staff_list %}
+                                    <tr>
+                                        <td>
+                                            <strong>{{ staff.staffid }}</strong>
+                                        </td>
+                                        <td>{{ staff.name }}</td>
+                                        <td>{{ staff.section|default:"-" }}</td>
+                                        <td>{{ staff.designation|default:"-" }}</td>
+                                        <td>
+                                            <span class="badge bg-info">{{ staff.level|default:"-" }}</span>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-secondary">{{ staff.weekly_off|default:"-" }}</span>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-success">{{ staff.type_of_employment|default:"-" }}</span>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-warning">{{ staff.priority|default:"-" }}</span>
+                                        </td>
+                                        <td>
+                                            <div class="btn-group" role="group">
+                                                <a href="{% url 'processor:staff_edit' staff.id %}" 
+                                                   class="btn btn-sm btn-outline-primary" 
+                                                   title="Edit">
+                                                    <i class="fas fa-edit"></i>
+                                                </a>
+                                                <button type="button" 
+                                                        class="btn btn-sm btn-outline-danger" 
+                                                        onclick="confirmDelete({{ staff.id }}, '{{ staff.name }}')"
+                                                        title="Delete">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination -->
+                        {% if is_paginated %}
+                        <div class="card-footer">
+                            <nav aria-label="Staff pagination">
+                                <ul class="pagination justify-content-center mb-0">
+                                    {% if page_obj.has_previous %}
+                                        <li class="page-item">
+                                            <a class="page-link" href="?page=1{% if request.GET %}&{{ request.GET.urlencode }}{% endif %}">
+                                                <i class="fas fa-angle-double-left"></i>
+                                            </a>
+                                        </li>
+                                        <li class="page-item">
+                                            <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if request.GET %}&{{ request.GET.urlencode }}{% endif %}">
+                                                <i class="fas fa-angle-left"></i>
+                                            </a>
+                                        </li>
+                                    {% endif %}
+
+                                    <li class="page-item active">
+                                        <span class="page-link">
+                                            Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+                                        </span>
+                                    </li>
+
+                                    {% if page_obj.has_next %}
+                                        <li class="page-item">
+                                            <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if request.GET %}&{{ request.GET.urlencode }}{% endif %}">
+                                                <i class="fas fa-angle-right"></i>
+                                            </a>
+                                        </li>
+                                        <li class="page-item">
+                                            <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% if request.GET %}&{{ request.GET.urlencode }}{% endif %}">
+                                                <i class="fas fa-angle-double-right"></i>
+                                            </a>
+                                        </li>
+                                    {% endif %}
+                                </ul>
+                            </nav>
+                        </div>
+                        {% endif %}
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="fas fa-users fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">No staff members found</h5>
+                            <p class="text-muted">Add your first staff member to get started.</p>
+                            <a href="{% url 'processor:staff_add' %}" class="btn btn-primary">
+                                <i class="fas fa-plus me-2"></i>Add Staff Member
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm Delete</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete staff member "<span id="staffName"></span>"?</p>
+                <p class="text-danger"><small>This action cannot be undone.</small></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form id="deleteForm" method="post" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function confirmDelete(staffId, staffName) {
+    document.getElementById('staffName').textContent = staffName;
+    document.getElementById('deleteForm').action = `/app/staff/${staffId}/delete/`;
+    
+    const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    deleteModal.show();
+}
+
+// Auto-submit filter form on input change
+document.addEventListener('DOMContentLoaded', function() {
+    const filterInputs = document.querySelectorAll('input[type="text"], input[type="number"], select');
+    filterInputs.forEach(input => {
+        input.addEventListener('change', function() {
+            this.closest('form').submit();
+        });
+    });
+});
+</script>
+{% endblock %} 
