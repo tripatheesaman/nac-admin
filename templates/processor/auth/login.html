@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,7 +7,7 @@
     <title>Login - Attendance Management</title>
     
     <!-- Favicon -->
-    <link rel="icon" type="image/x-icon" href="/media/favicon.ico">
+    <link rel="icon" type="image/png" href="{% static 'favicon.png' %}">
     
     <style>
         * {
@@ -278,7 +279,7 @@
 <body>
     <div class="login-container">
         <div class="login-header">
-            <img src="/media/logo.png" alt="NAC Logo">
+            <img src="{% static 'logo.png' %}" alt="NAC Logo">
             <h1>Welcome Back</h1>
             <p>Attendance Management System</p>
         </div>

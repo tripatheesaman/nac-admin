@@ -10,8 +10,28 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterModelTable(
-            name='staffdetails',
-            table='staff_details',
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(
+                    sql=(
+                        """
+                        DO $$
+                        BEGIN
+                          IF to_regclass('public.processor_staffdetails') IS NOT NULL
+                             AND to_regclass('public.staff_details') IS NULL THEN
+                            EXECUTE 'ALTER TABLE processor_staffdetails RENAME TO staff_details';
+                          END IF;
+                        END$$;
+                        """
+                    ),
+                    reverse_sql=migrations.RunSQL.noop,
+                )
+            ],
+            state_operations=[
+                migrations.AlterModelTable(
+                    name='staffdetails',
+                    table='staff_details',
+                ),
+            ],
         ),
     ]

@@ -863,13 +863,13 @@ def generate_segregation_report(request, file_id):
                             'worked_hours': record.get('WorkedHours', '')
                         }
                 
-                # Sort employees according to employment type and priority
+                # Sort employees according to priority first, then employment type
                 sorted_employees = sorted(employee_data.items(), key=lambda x: (
-                    # First by employment type (permanent first, then contract)
+                    # First by priority (ascending)
+                    x[1].get('priority', 999),
+                    # Then by employment type (permanent first, then contract)
                     0 if x[1].get('type_of_employment') == 'permanent' else 
                     1 if x[1].get('type_of_employment') == 'contract' else 2,
-                    # Then by priority (ascending)
-                    x[1].get('priority', 999),
                     # Then by staffid numeric part (ascending) - handle text staffids
                     int(''.join(filter(str.isdigit, str(x[0])))) if ''.join(filter(str.isdigit, str(x[0]))) and ''.join(filter(str.isdigit, str(x[0]))).isdigit() else 999999
                 ))
@@ -1059,7 +1059,7 @@ def generate_detailed_attendance_report(request, file_id):
             port=config('DATABASE_PORT', default='5432')
         )
         
-        # Get staff details ordered by priority and employment type
+        # Get staff details ordered by priority first, then employment type
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("""
             SELECT staffid, name, designation, level, section, weekly_off, type_of_employment, priority
@@ -1067,12 +1067,12 @@ def generate_detailed_attendance_report(request, file_id):
             WHERE staffid = ANY(%s) 
             AND type_of_employment IN ('permanent', 'contract')
             ORDER BY 
+                priority ASC,
                 CASE 
                     WHEN type_of_employment = 'permanent' THEN 1
                     WHEN type_of_employment = 'contract' THEN 2
                     ELSE 3
                 END,
-                priority ASC,
                 CASE 
                     WHEN REGEXP_REPLACE(staffid, '[^0-9]', '', 'g') ~ '^[0-9]+$' 
                     THEN CAST(REGEXP_REPLACE(staffid, '[^0-9]', '', 'g') AS INTEGER)
@@ -1350,7 +1350,7 @@ def generate_monthly_wages_report(request, file_id):
             port=config('DATABASE_PORT', default='5432')
         )
         
-        # Get staff details ordered by priority and employment type
+        # Get staff details ordered by priority first, then employment type
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("""
             SELECT staffid, name, designation, level, section, weekly_off, type_of_employment, priority
