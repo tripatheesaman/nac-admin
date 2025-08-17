@@ -125,6 +125,37 @@ class HomeView(TemplateView):
                 output_filename = f"processed_{os.path.basename(input_path)}"
                 from django.conf import settings
                 output_path = os.path.join(settings.MEDIA_ROOT, 'processed', output_filename)
+                
+                logger.info(f"MEDIA_ROOT: {settings.MEDIA_ROOT}")
+                logger.info(f"Output path: {output_path}")
+                logger.info(f"Directory to create: {os.path.dirname(output_path)}")
+                
+                # Ensure the processed directory exists
+                try:
+                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                    logger.info(f"Ensured directory exists: {os.path.dirname(output_path)}")
+                    
+                    # Verify the directory was created
+                    if os.path.exists(os.path.dirname(output_path)):
+                        logger.info(f"Directory verification successful: {os.path.dirname(output_path)}")
+                        
+                        # Test if we can write to the directory
+                        test_file = os.path.join(os.path.dirname(output_path), '.test_write')
+                        try:
+                            with open(test_file, 'w') as f:
+                                f.write('test')
+                            os.remove(test_file)
+                            logger.info(f"Directory write test successful: {os.path.dirname(output_path)}")
+                        except Exception as write_error:
+                            logger.error(f"Directory write test failed: {os.path.dirname(output_path)} - {write_error}")
+                            raise Exception(f"Directory is not writable: {os.path.dirname(output_path)}")
+                    else:
+                        logger.error(f"Directory verification failed: {os.path.dirname(output_path)}")
+                        raise Exception(f"Directory was not created: {os.path.dirname(output_path)}")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to create directory {os.path.dirname(output_path)}: {e}")
+                    raise
 
                 template_path = None
                 if options_form.cleaned_data['output_type'] == 'template':
@@ -132,6 +163,7 @@ class HomeView(TemplateView):
                     if template_file:
                         template_path = template_file.path
 
+                logger.info(f"Processing file: input_path={input_path}, output_path={output_path}")
                 result = service.process_file(input_path, output_path, template_path)
 
                 if result['success']:
@@ -231,6 +263,38 @@ class ProcessFileView(View):
             from django.conf import settings
             output_path = os.path.join(settings.MEDIA_ROOT, 'processed', output_filename)
             
+            logger.info(f"MEDIA_ROOT: {settings.MEDIA_ROOT}")
+            logger.info(f"Output path: {output_path}")
+            logger.info(f"Directory to create: {os.path.dirname(output_path)}")
+            
+            # Ensure the processed directory exists
+            try:
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                logger.info(f"Ensured directory exists: {os.path.dirname(output_path)}")
+                
+                # Verify the directory was created
+                if os.path.exists(os.path.dirname(output_path)):
+                    logger.info(f"Directory verification successful: {os.path.dirname(output_path)}")
+                    
+                    # Test if we can write to the directory
+                    test_file = os.path.join(os.path.dirname(output_path), '.test_write')
+                    try:
+                        with open(test_file, 'w') as f:
+                            f.write('test')
+                        os.remove(test_file)
+                        logger.info(f"Directory write test successful: {os.path.dirname(output_path)}")
+                    except Exception as write_error:
+                        logger.error(f"Directory write test failed: {os.path.dirname(output_path)} - {write_error}")
+                        raise Exception(f"Directory is not writable: {os.path.dirname(output_path)}")
+                else:
+                    logger.error(f"Directory verification failed: {os.path.dirname(output_path)}")
+                    raise Exception(f"Directory was not created: {os.path.dirname(output_path)}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to create directory {os.path.dirname(output_path)}: {e}")
+                raise
+            
+            logger.info(f"Processing file: input_path={input_path}, output_path={output_path}")
             result = service.process_file(input_path, output_path)
             
             if result['success']:
@@ -611,7 +675,7 @@ def get_detailed_leave_details(request, file_id):
             except (IndexError, KeyError):
                 employee_name = "Unknown"
                 designation = "Unknown"
-            present_days = absent_days = weekly_off_days = allowance_days = sick_leave_days = casual_leave_days = personal_leave_days = substitute_leave_days = duty_leave_days = 0
+            present_days = absent_days = weekly_off_days = allowance_days = sick_leave_days = casual_leave_days = personal_leave_days = substitute_leave_days = duty_leave_days = other_leave_days = 0
             for _, row in employee_data.iterrows():
                 status = str(row.get('Status', '')).strip().upper()
                 if 'P' in status or 'A *' in status:
@@ -628,10 +692,18 @@ def get_detailed_leave_details(request, file_id):
                     casual_leave_days += 1
                 elif 'PL' in status:
                     personal_leave_days += 1
-                elif 'SUBSTITUTE' in status or 'SUBL' in status or ('SL' in status and 'SUBSTITUTE' in status):
+                elif 'SUBSTITUTE' in status or 'SUBL' in status:
                     substitute_leave_days += 1
                 elif 'DUTY' in status:
                     duty_leave_days += 1
+                    # Also count as other leave for the other_leave_days count
+                    other_leave_days += 1
+                elif 'L' in status:
+                    # Count as other leave for the other_leave_days count
+                    other_leave_days += 1
+                else:
+                    # Count as other leave if status doesn't match any specific leave type (PL, SL, CL, SUBSTITUTE)
+                    other_leave_days += 1
             leave_list.append({
                 'employee_id': employee_id,
                 'employee_name': employee_name,
@@ -645,6 +717,7 @@ def get_detailed_leave_details(request, file_id):
                 'personal_leave_days': personal_leave_days,
                 'substitute_leave_days': substitute_leave_days,
                 'duty_leave_days': duty_leave_days,
+                'other_leave_days': other_leave_days,
             })
 
         # Search filter
@@ -1199,6 +1272,7 @@ def generate_detailed_attendance_report(request, file_id):
             casual_leave_days = 0
             substitute_leave_days = 0
             duty_leave_days = 0
+            other_leave_days = 0
             
             present_dates = []
             absent_dates = []
@@ -1209,6 +1283,7 @@ def generate_detailed_attendance_report(request, file_id):
             casual_leave_dates = []
             substitute_leave_dates = []
             duty_leave_dates = []
+            other_leave_dates = []
             
             # Process each day for this employee
             for _, emp_row in emp_data.iterrows():
@@ -1244,18 +1319,28 @@ def generate_detailed_attendance_report(request, file_id):
                 elif 'PL' in status:
                     personal_leave_days += 1
                     personal_leave_dates.append(date)
-                elif 'SL' in status and 'SUBSTITUTE' not in status:
+                elif 'SL' in status:
                     sick_leave_days += 1
                     sick_leave_dates.append(date)
                 elif 'CL' in status:
                     casual_leave_days += 1
                     casual_leave_dates.append(date)
-                elif 'SUBSTITUTE' in status or 'SUBL' in status or ('SL' in status and 'SUBSTITUTE' in status):
+                elif 'SUBSTITUTE' in status or 'SUBL' in status:
                     substitute_leave_days += 1
                     substitute_leave_dates.append(date)
                 elif 'DUTY' in status:
                     duty_leave_days += 1
                     duty_leave_dates.append(date)
+                    # Also count as other leave for the M column (but don't add to other_leave_dates to avoid duplication in remarks)
+                    other_leave_days += 1
+                elif 'L' in status:
+                    # Count as other leave for the M column
+                    other_leave_days += 1
+                    other_leave_dates.append(date)
+                else:
+                    # Count as other leave if status doesn't match any specific leave type (PL, SL, CL, SUBSTITUTE)
+                    other_leave_days += 1
+                    other_leave_dates.append(date)
             
             # Fill data in the template
             safe_set_cell(ws, f'B{row}', staff['name'].title())  # Proper case name
@@ -1263,11 +1348,14 @@ def generate_detailed_attendance_report(request, file_id):
             safe_set_cell(ws, f'D{row}', staff['designation'])
             safe_set_cell(ws, f'E{row}', staff['level'])
             safe_set_cell(ws, f'F{row}', present_days)
-            safe_set_cell(ws, f'H{row}', personal_leave_days)
-            safe_set_cell(ws, f'I{row}', casual_leave_days)
-            safe_set_cell(ws, f'J{row}', sick_leave_days)
-            safe_set_cell(ws, f'L{row}', absent_days)
-            safe_set_cell(ws, f'N{row}', allowance_days)
+            safe_set_cell(ws, f'G{row}', personal_leave_days)  # PL count
+            safe_set_cell(ws, f'H{row}', sick_leave_days)      # SL count
+            safe_set_cell(ws, f'I{row}', casual_leave_days)    # CL count
+            safe_set_cell(ws, f'J{row}', substitute_leave_days) # Substitute count
+            safe_set_cell(ws, f'L{row}', absent_days)          # Absent count
+            safe_set_cell(ws, f'M{row}', other_leave_days)     # Other leave count
+            safe_set_cell(ws, f'N{row}', allowance_days)       # Allowance count
+            
             # Fill weekly off day name instead of count
             weekly_off_day = staff.get('weekly_off', '').title() if staff.get('weekly_off') else ''
             safe_set_cell(ws, f'R{row}', weekly_off_day)
@@ -1291,6 +1379,8 @@ def generate_detailed_attendance_report(request, file_id):
                 leave_details.append(f"SUBSTITUTE on {join_days(substitute_leave_dates)}")
             if duty_leave_dates:
                 leave_details.append(f"DUTY on {join_days(duty_leave_dates)}")
+            if other_leave_dates:
+                leave_details.append(f"Other on {join_days(other_leave_dates)}")
             if absent_dates:
                 leave_details.append(f"Absent on {join_days(absent_dates)}")
             
@@ -1483,6 +1573,7 @@ def generate_monthly_wages_report(request, file_id):
             casual_leave_days = 0
             substitute_leave_days = 0
             duty_leave_days = 0
+            other_leave_days = 0
             
             present_dates = []
             absent_dates = []
@@ -1493,6 +1584,7 @@ def generate_monthly_wages_report(request, file_id):
             casual_leave_dates = []
             substitute_leave_dates = []
             duty_leave_dates = []
+            other_leave_dates = []
             
             # Process each day for this employee
             for _, emp_row in emp_data.iterrows():
@@ -1528,18 +1620,28 @@ def generate_monthly_wages_report(request, file_id):
                 elif 'PL' in status:
                     personal_leave_days += 1
                     personal_leave_dates.append(date)
-                elif 'SL' in status and 'SUBSTITUTE' not in status:
+                elif 'SL' in status:
                     sick_leave_days += 1
                     sick_leave_dates.append(date)
                 elif 'CL' in status:
                     casual_leave_days += 1
                     casual_leave_dates.append(date)
-                elif 'SUBSTITUTE' in status or 'SUBL' in status or ('SL' in status and 'SUBSTITUTE' in status):
+                elif 'SUBSTITUTE' in status or 'SUBL' in status:
                     substitute_leave_days += 1
                     substitute_leave_dates.append(date)
                 elif 'DUTY' in status:
                     duty_leave_days += 1
                     duty_leave_dates.append(date)
+                    # Also count as other leave for the M column (but don't add to other_leave_dates to avoid duplication in remarks)
+                    other_leave_days += 1
+                elif 'L' in status:
+                    # Count as other leave for the M column
+                    other_leave_days += 1
+                    other_leave_dates.append(date)
+                else:
+                    # Count as other leave if status doesn't match any specific leave type (PL, SL, CL, SUBSTITUTE)
+                    other_leave_days += 1
+                    other_leave_dates.append(date)
             
             # Fill data in the template
             safe_set_cell(ws, f'B{row}', staff['name'].title())  # Proper case name
@@ -1547,11 +1649,14 @@ def generate_monthly_wages_report(request, file_id):
             safe_set_cell(ws, f'D{row}', staff['designation'])
             safe_set_cell(ws, f'E{row}', staff['level'])
             safe_set_cell(ws, f'F{row}', present_days)
-            safe_set_cell(ws, f'H{row}', personal_leave_days)
-            safe_set_cell(ws, f'I{row}', casual_leave_days)
-            safe_set_cell(ws, f'J{row}', sick_leave_days)
-            safe_set_cell(ws, f'L{row}', absent_days)
-            safe_set_cell(ws, f'N{row}', allowance_days)
+            safe_set_cell(ws, f'G{row}', personal_leave_days)  # PL count
+            safe_set_cell(ws, f'H{row}', sick_leave_days)      # SL count
+            safe_set_cell(ws, f'I{row}', casual_leave_days)    # CL count
+            safe_set_cell(ws, f'J{row}', substitute_leave_days) # Substitute count
+            safe_set_cell(ws, f'L{row}', absent_days)          # Absent count
+            safe_set_cell(ws, f'M{row}', other_leave_days)     # Other leave count
+            safe_set_cell(ws, f'N{row}', allowance_days)       # Allowance count
+            
             # Fill weekly off day name instead of count
             weekly_off_day = staff.get('weekly_off', '').title() if staff.get('weekly_off') else ''
             safe_set_cell(ws, f'R{row}', weekly_off_day)
@@ -1575,6 +1680,8 @@ def generate_monthly_wages_report(request, file_id):
                 leave_details.append(f"SUBSTITUTE on {join_days(substitute_leave_dates)}")
             if duty_leave_dates:
                 leave_details.append(f"DUTY on {join_days(duty_leave_dates)}")
+            if other_leave_dates:
+                leave_details.append(f"Other on {join_days(other_leave_dates)}")
             if absent_dates:
                 leave_details.append(f"Absent on {join_days(absent_dates)}")
             
