@@ -5,6 +5,25 @@ from django.contrib.auth import get_user_model
 import os
 
 
+class Department(models.Model):
+    """Model to store department information"""
+    name = models.CharField(max_length=255, unique=True, verbose_name="Department Name")
+    code = models.CharField(max_length=10, unique=True, verbose_name="Department Code")
+    description = models.TextField(blank=True, null=True, verbose_name="Description")
+    is_active = models.BooleanField(default=True, verbose_name="Active")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = "Department"
+        verbose_name_plural = "Departments"
+        ordering = ['name']
+        db_table = 'departments'
+    
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+
 class CustomUserManager(BaseUserManager):
     """Custom user manager"""
     
@@ -41,6 +60,9 @@ class User(AbstractUser):
     first_name = models.CharField(max_length=150, verbose_name="First Name")
     last_name = models.CharField(max_length=150, verbose_name="Last Name")
     email = models.EmailField(unique=True, verbose_name="Email Address")
+    
+    # Department field - null for superusers, required for regular users
+    department = models.ForeignKey(Department, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Department")
     
     # Additional fields for better user management
     is_active = models.BooleanField(default=True, verbose_name="Active")
@@ -123,6 +145,7 @@ class StaffDetails(models.Model):
     name = models.CharField(max_length=255, verbose_name="Full Name")
     section = models.CharField(max_length=255, verbose_name="Section")
     designation = models.CharField(max_length=255, verbose_name="Designation")
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, verbose_name="Department", null=True, blank=True)
     weekly_off = models.CharField(max_length=10, choices=WEEKLY_OFF_CHOICES, verbose_name="Weekly Off", default="sun")
     level = models.IntegerField(verbose_name="Level")
     type_of_employment = models.CharField(max_length=20, choices=TYPE_OF_EMPLOYMENT_CHOICES, verbose_name="Type of Employment", default="permanent")

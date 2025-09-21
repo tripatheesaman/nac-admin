@@ -61,6 +61,48 @@ class Command(BaseCommand):
             )
             raise
 
+    def create_departments_table(self):
+        """Create the departments table"""
+        try:
+            # Connect to the database
+            conn = psycopg2.connect(
+                host=settings.DATABASES['default']['HOST'],
+                port=settings.DATABASES['default']['PORT'],
+                user=settings.DATABASES['default']['USER'],
+                password=settings.DATABASES['default']['PASSWORD'],
+                database=settings.DATABASES['default']['NAME']
+            )
+            cursor = conn.cursor()
+            
+            # Create departments table
+            create_table_sql = """
+            CREATE TABLE IF NOT EXISTS departments (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) UNIQUE NOT NULL,
+                code VARCHAR(10) UNIQUE NOT NULL,
+                description TEXT,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+            
+            cursor.execute(create_table_sql)
+            conn.commit()
+            
+            self.stdout.write(
+                self.style.SUCCESS('Successfully created departments table')
+            )
+            
+            cursor.close()
+            conn.close()
+            
+        except Exception as e:
+            self.stdout.write(
+                self.style.ERROR(f'Error creating departments table: {str(e)}')
+            )
+            raise
+
     def create_staff_details_table(self):
         """Create the staff_details table with exact specifications"""
         try:
@@ -82,6 +124,7 @@ class Command(BaseCommand):
                 name VARCHAR(255) NOT NULL,
                 section VARCHAR(255),
                 designation VARCHAR(255),
+                department_id INTEGER REFERENCES departments(id) ON DELETE CASCADE,
                 weekly_off VARCHAR(10) CHECK (weekly_off IN ('sun', 'mon', 'tue', 'wed', 'thurs', 'fri', 'sat', '')),
                 level INTEGER,
                 type_of_employment VARCHAR(20) CHECK (type_of_employment IN ('permanent', 'contract', 'monthly wages')),
@@ -111,11 +154,14 @@ class Command(BaseCommand):
         # Create database if it doesn't exist
         self.create_database_if_not_exists()
         
+        # Create the departments table first
+        self.create_departments_table()
+        
         # Create the staff_details table
         self.create_staff_details_table()
         
         self.stdout.write(
             self.style.SUCCESS(
-                f'Database and staff_details table are ready!'
+                f'Database, departments, and staff_details tables are ready!'
             )
         ) 

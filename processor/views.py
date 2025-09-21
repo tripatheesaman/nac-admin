@@ -20,9 +20,29 @@ import psycopg2
 
 logger = logging.getLogger(__name__)
 
-from .models import ProcessedFile
+from .models import ProcessedFile, StaffDetails
 from .forms import FileUploadForm, ProcessingOptionsForm, StaffDetailsForm, StaffFilterForm
 from .services import ExcelProcessorService
+
+
+def get_department_filtered_queryset(user, model_class):
+    """
+    Helper function to get department-filtered querysets.
+    Superusers see all data, regular users see only their department's data.
+    """
+    if user.is_superuser:
+        return model_class.objects.all()
+    elif user.department:
+        if model_class == ProcessedFile:
+            # For files, filter by users in the same department
+            return model_class.objects.filter(user__department=user.department)
+        elif model_class == StaffDetails:
+            # For staff, filter by department
+            return model_class.objects.filter(department=user.department)
+    else:
+        # User has no department, return empty queryset
+        return model_class.objects.none()
+
 
 # Progress polling endpoint for AJAX
 @login_required(login_url='/app/login/')
@@ -30,7 +50,7 @@ from .services import ExcelProcessorService
 def get_progress(request, progress_id):
     """Return dummy progress info for file processing (expand as needed)"""
     try:
-        processed_file = ProcessedFile.objects.get(id=progress_id, user=request.user)
+        processed_file = ProcessedFile.objects.get(id=progress_id)
         if processed_file.status == 'completed':
             return JsonResponse({
                 'progress': 100,
@@ -96,7 +116,18 @@ class HomeView(TemplateView):
         context = super().get_context_data(**kwargs)
         context['upload_form'] = FileUploadForm()
         context['options_form'] = ProcessingOptionsForm()
-        context['recent_files'] = ProcessedFile.objects.filter(user=self.request.user)[:5]
+        
+        # Get department-filtered queryset
+        files_queryset = get_department_filtered_queryset(self.request.user, ProcessedFile)
+        context['recent_files'] = files_queryset.select_related('user').order_by('-created_at')[:5]
+        
+        # Add file statistics (department-filtered)
+        context['total_files'] = files_queryset.count()
+        context['completed_files'] = files_queryset.filter(status='completed').count()
+        context['pending_files'] = files_queryset.filter(status='pending').count()
+        context['processing_files'] = files_queryset.filter(status='processing').count()
+        context['failed_files'] = files_queryset.filter(status='failed').count()
+        
         return context
     
     def post(self, request, *args, **kwargs):
@@ -207,7 +238,19 @@ class FileListView(ListView):
     paginate_by = 20
     
     def get_queryset(self):
-        return ProcessedFile.objects.filter(user=self.request.user)
+        files_queryset = get_department_filtered_queryset(self.request.user, ProcessedFile)
+        return files_queryset.select_related('user').order_by('-created_at')
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Add additional context for file statistics (department-filtered)
+        files_queryset = get_department_filtered_queryset(self.request.user, ProcessedFile)
+        context['total_files'] = files_queryset.count()
+        context['completed_files'] = files_queryset.filter(status='completed').count()
+        context['pending_files'] = files_queryset.filter(status='pending').count()
+        context['processing_files'] = files_queryset.filter(status='processing').count()
+        context['failed_files'] = files_queryset.filter(status='failed').count()
+        return context
 
 
 @method_decorator(login_required(login_url='/app/login/'), name='dispatch')
@@ -219,14 +262,15 @@ class FileDetailView(DetailView):
     pk_url_kwarg = 'file_id'
     
     def get_queryset(self):
-        return ProcessedFile.objects.filter(user=self.request.user)
+        return get_department_filtered_queryset(self.request.user, ProcessedFile).select_related('user')
 
 
 @method_decorator(login_required(login_url='/app/login/'), name='dispatch')
 class DownloadView(View):
     """Download processed file"""
     def get(self, request, file_id):
-        processed_file = get_object_or_404(ProcessedFile, id=file_id, user=request.user)
+        files_queryset = get_department_filtered_queryset(request.user, ProcessedFile)
+        processed_file = get_object_or_404(files_queryset, id=file_id)
         
         if processed_file.processed_file and processed_file.status == 'completed':
             file_path = processed_file.processed_file.path
@@ -245,7 +289,8 @@ class ProcessFileView(View):
     """AJAX endpoint for processing files"""
     def post(self, request, file_id):
         try:
-            processed_file = get_object_or_404(ProcessedFile, id=file_id, user=request.user)
+            files_queryset = get_department_filtered_queryset(request.user, ProcessedFile)
+            processed_file = get_object_or_404(files_queryset, id=file_id)
             
             if processed_file.status == 'completed':
                 return JsonResponse({
@@ -335,7 +380,8 @@ class ProcessFileView(View):
 @require_http_methods(["GET", "POST", "DELETE"]) 
 def delete_file(request, file_id):
     """Delete a processed file"""
-    processed_file = get_object_or_404(ProcessedFile, id=file_id, user=request.user)
+    files_queryset = get_department_filtered_queryset(request.user, ProcessedFile)
+    processed_file = get_object_or_404(files_queryset, id=file_id)
 
     # Allow GET to act as a redirect-safe confirmationless delete fallback
     if request.method in ["POST", "DELETE", "GET"]:
@@ -361,7 +407,8 @@ def delete_file(request, file_id):
 @login_required(login_url='/app/login/')
 def preview_data(request, file_id):
     """Preview extracted data from uploaded file with pagination and search"""
-    processed_file = get_object_or_404(ProcessedFile, id=file_id, user=request.user)
+    files_queryset = get_department_filtered_queryset(request.user, ProcessedFile)
+    processed_file = get_object_or_404(files_queryset, id=file_id)
     
     try:
         service = ExcelProcessorService()
@@ -428,6 +475,14 @@ class StaffListView(ListView):
         query = "SELECT * FROM staff_details"
         params = []
         conditions = []
+        
+        # Apply department filtering
+        if not self.request.user.is_superuser and self.request.user.department:
+            conditions.append("department_id = %s")
+            params.append(self.request.user.department.id)
+        elif not self.request.user.is_superuser:
+            # User has no department, return empty result
+            return []
         
         # Apply filters
         filter_form = StaffFilterForm(self.request.GET)
@@ -638,7 +693,8 @@ def delete_staff(request, staff_id):
 def get_detailed_leave_details(request, file_id):
     """Get detailed leave details for all employees with pagination and search"""
     try:
-        processed_file = get_object_or_404(ProcessedFile, id=file_id)
+        files_queryset = get_department_filtered_queryset(request.user, ProcessedFile)
+        processed_file = get_object_or_404(files_queryset, id=file_id)
         import pandas as pd
         if processed_file.processed_file:
             try:
@@ -665,7 +721,21 @@ def get_detailed_leave_details(request, file_id):
 
         # Build leave details list
         leave_list = []
-        for employee_id in df['Employee_ID'].dropna().unique():
+        
+        # Get department-filtered employee IDs
+        if not request.user.is_superuser and request.user.department:
+            # Get staff IDs from the user's department
+            from django.db import connection
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT staffid FROM staff_details WHERE department_id = %s", [request.user.department.id])
+                department_staff_ids = [row[0] for row in cursor.fetchall()]
+            
+            # Filter employee IDs to only include those from the user's department
+            available_employee_ids = [emp_id for emp_id in df['Employee_ID'].dropna().unique() if str(emp_id) in department_staff_ids]
+        else:
+            available_employee_ids = df['Employee_ID'].dropna().unique()
+        
+        for employee_id in available_employee_ids:
             employee_data = df[df['Employee_ID'] == employee_id]
             if employee_data.empty:
                 continue
@@ -1102,7 +1172,8 @@ def generate_segregation_report(request, file_id):
 def generate_detailed_attendance_report(request, file_id):
     """Generate detailed attendance report using template"""
     try:
-        processed_file = get_object_or_404(ProcessedFile, id=file_id)
+        files_queryset = get_department_filtered_queryset(request.user, ProcessedFile)
+        processed_file = get_object_or_404(files_queryset, id=file_id)
         
         # Get the processed file path
         if processed_file.processed_file:
@@ -1134,11 +1205,20 @@ def generate_detailed_attendance_report(request, file_id):
         
         # Get staff details ordered by priority first, then employment type
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("""
+        
+        # Build department filter
+        department_filter = ""
+        params = [list(unique_employee_ids)]
+        if not request.user.is_superuser and request.user.department:
+            department_filter = " AND department_id = %s"
+            params.append(request.user.department.id)
+        
+        cursor.execute(f"""
             SELECT staffid, name, designation, level, section, weekly_off, type_of_employment, priority
             FROM staff_details 
             WHERE staffid = ANY(%s) 
             AND type_of_employment IN ('permanent', 'contract')
+            {department_filter}
             ORDER BY 
                 priority ASC,
                 CASE 
@@ -1151,7 +1231,7 @@ def generate_detailed_attendance_report(request, file_id):
                     THEN CAST(REGEXP_REPLACE(staffid, '[^0-9]', '', 'g') AS INTEGER)
                     ELSE 999999
                 END ASC
-        """, (list(unique_employee_ids),))
+        """, params)
         
         staff_details = {row['staffid']: row for row in cursor.fetchall()}
         cursor.close()
@@ -1410,7 +1490,8 @@ def generate_detailed_attendance_report(request, file_id):
 def generate_monthly_wages_report(request, file_id):
     """Generate monthly wages report using template"""
     try:
-        processed_file = get_object_or_404(ProcessedFile, id=file_id)
+        files_queryset = get_department_filtered_queryset(request.user, ProcessedFile)
+        processed_file = get_object_or_404(files_queryset, id=file_id)
         
         # Get the processed file path
         if processed_file.processed_file:
@@ -1442,11 +1523,20 @@ def generate_monthly_wages_report(request, file_id):
         
         # Get staff details ordered by priority first, then employment type
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("""
+        
+        # Build department filter
+        department_filter = ""
+        params = [list(unique_employee_ids)]
+        if not request.user.is_superuser and request.user.department:
+            department_filter = " AND department_id = %s"
+            params.append(request.user.department.id)
+        
+        cursor.execute(f"""
             SELECT staffid, name, designation, level, section, weekly_off, type_of_employment, priority
             FROM staff_details 
             WHERE staffid = ANY(%s) 
             AND type_of_employment = 'monthly wages'
+            {department_filter}
             ORDER BY 
                 priority ASC,
                 CASE 
@@ -1454,7 +1544,7 @@ def generate_monthly_wages_report(request, file_id):
                     THEN CAST(REGEXP_REPLACE(staffid, '[^0-9]', '', 'g') AS INTEGER)
                     ELSE 999999
                 END ASC
-        """, (list(unique_employee_ids),))
+        """, params)
         
         staff_details = {row['staffid']: row for row in cursor.fetchall()}
         cursor.close()
