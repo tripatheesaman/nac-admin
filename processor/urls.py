@@ -29,6 +29,13 @@ urlpatterns = [
     path('staff/<int:staff_id>/edit/', views.StaffUpdateView.as_view(), name='staff_edit'),
     path('staff/<int:staff_id>/delete/', views.delete_staff, name='staff_delete'),
     
+    # Section Management URLs
+    path('sections/', views.SectionListView.as_view(), name='section_list'),
+    path('sections/add/', views.SectionCreateView.as_view(), name='section_add'),
+    path('sections/<int:section_id>/edit/', views.SectionUpdateView.as_view(), name='section_edit'),
+    path('sections/<int:section_id>/delete/', views.delete_section, name='section_delete'),
+    path('test-sections/', views.test_section_access, name='test_sections'),
+    
     # Report Generation URLs
     path('files/<int:file_id>/segregation-report/', views.generate_segregation_report, name='generate_segregation_report'),
     path('files/<int:file_id>/leave-details/', views.get_detailed_leave_details, name='get_detailed_leave_details'),

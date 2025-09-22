@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm, PasswordChangeForm
 from django.contrib.auth import get_user_model
-from .models import ProcessedFile, StaffDetails
+from .models import ProcessedFile, StaffDetails, Section, Department
 
 User = get_user_model()
 
@@ -101,7 +101,17 @@ class StaffDetailsForm(forms.Form):
     
     def __init__(self, *args, **kwargs):
         self.staff_id = kwargs.pop('staff_id', None)
+        self.user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
+        
+        # Filter sections based on user access
+        if self.user and not self.user.is_superuser:
+            if self.user.department:
+                self.fields['section'].queryset = Section.objects.filter(department=self.user.department, is_active=True)
+            else:
+                self.fields['section'].queryset = Section.objects.none()
+        else:
+            self.fields['section'].queryset = Section.objects.filter(is_active=True)
     
     staffid = forms.CharField(
         max_length=255,
@@ -113,10 +123,9 @@ class StaffDetailsForm(forms.Form):
         widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Enter Full Name'}),
         label="Full Name"
     )
-    section = forms.CharField(
-        max_length=255,
-        required=False,
-        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Enter Section'}),
+    section = forms.ModelChoiceField(
+        queryset=Section.objects.none(),  # Will be set in __init__
+        widget=forms.Select(attrs={'class': 'form-control'}),
         label="Section"
     )
     designation = forms.CharField(
@@ -214,4 +223,131 @@ class StaffFilterForm(forms.Form):
     priority = forms.IntegerField(
         required=False,
         widget=forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'Filter by priority'})
+    )
+
+
+class SectionForm(forms.Form):
+    """Form for section management"""
+    
+    def __init__(self, *args, **kwargs):
+        self.section_id = kwargs.pop('section_id', None)
+        self.user = kwargs.pop('user', None)
+        super().__init__(*args, **kwargs)
+        
+        # Set department based on user access
+        if self.user and not self.user.is_superuser:
+            if self.user.department:
+                # For regular users, set their department and make it read-only
+                self.fields['department'].queryset = Department.objects.filter(id=self.user.department.id)
+                self.fields['department'].initial = self.user.department
+                self.fields['department'].required = False  # Not required since it's auto-set
+                self.fields['department'].widget.attrs['readonly'] = True
+                self.fields['department'].widget.attrs['disabled'] = True
+            else:
+                self.fields['department'].queryset = Department.objects.none()
+        else:
+            # Superusers can choose any department
+            self.fields['department'].queryset = Department.objects.filter(is_active=True)
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        
+        # Handle disabled department field for regular users
+        if self.user and not self.user.is_superuser and self.user.department:
+            # If department field is disabled, use the user's department
+            cleaned_data['department'] = self.user.department
+        
+        return cleaned_data
+    
+    def clean_department(self):
+        department = self.cleaned_data.get('department')
+        
+        # For regular users with disabled department field, use their department
+        if self.user and not self.user.is_superuser and self.user.department:
+            if not department:  # Field was disabled and not in POST data
+                return self.user.department
+        
+        return department
+    
+    name = forms.CharField(
+        max_length=255,
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Enter Section Name'}),
+        label="Section Name"
+    )
+    code = forms.CharField(
+        max_length=50,
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Enter Section Code'}),
+        label="Section Code"
+    )
+    department = forms.ModelChoiceField(
+        queryset=Department.objects.none(),  # Will be set in __init__
+        widget=forms.Select(attrs={'class': 'form-control'}),
+        label="Department"
+    )
+    description = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': 'Enter Description'}),
+        label="Description"
+    )
+    is_active = forms.BooleanField(
+        required=False,
+        initial=True,
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        label="Active"
+    )
+    
+    def clean_code(self):
+        code = self.cleaned_data.get('code')
+        if code:
+            # Check if code already exists using raw SQL
+            from django.db import connection
+            with connection.cursor() as cursor:
+                if self.section_id:
+                    # Exclude current section when editing
+                    cursor.execute("SELECT COUNT(*) FROM sections WHERE code = %s AND id != %s", [code, self.section_id])
+                else:
+                    # Check for any existing code when creating
+                    cursor.execute("SELECT COUNT(*) FROM sections WHERE code = %s", [code])
+                count = cursor.fetchone()[0]
+                if count > 0:
+                    raise forms.ValidationError("Section Code already exists")
+        return code
+    
+    def clean_name(self):
+        name = self.cleaned_data.get('name')
+        if name:
+            # Check if name already exists using raw SQL
+            from django.db import connection
+            with connection.cursor() as cursor:
+                if self.section_id:
+                    # Exclude current section when editing
+                    cursor.execute("SELECT COUNT(*) FROM sections WHERE name = %s AND id != %s", [name, self.section_id])
+                else:
+                    # Check for any existing name when creating
+                    cursor.execute("SELECT COUNT(*) FROM sections WHERE name = %s", [name])
+                count = cursor.fetchone()[0]
+                if count > 0:
+                    raise forms.ValidationError("Section Name already exists")
+        return name
+
+
+class SectionFilterForm(forms.Form):
+    """Form for filtering section records"""
+    name = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Filter by name'})
+    )
+    code = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Filter by code'})
+    )
+    department = forms.ModelChoiceField(
+        queryset=Department.objects.none(),  # Will be set in view
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-control'})
+    )
+    is_active = forms.ChoiceField(
+        choices=[('', 'All'), ('true', 'Active'), ('false', 'Inactive')],
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-control'})
     ) 

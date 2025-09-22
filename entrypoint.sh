@@ -21,10 +21,10 @@ PY
 fi
 
 python manage.py migrate --noinput
-# Seed database (idempotent; seeders already skip existing rows)
-python manage.py seed_staff || true
-python manage.py seed_users || true
 python manage.py collectstatic --noinput
+
+# Create media subdirectories
+mkdir -p /app/media/processed /app/media/uploads
 
 exec "$@"
 
