@@ -24,6 +24,26 @@ class Department(models.Model):
         return f"{self.name} ({self.code})"
 
 
+class Section(models.Model):
+    """Model to store section information"""
+    name = models.CharField(max_length=255, unique=True, verbose_name="Section Name")
+    code = models.CharField(max_length=50, unique=True, verbose_name="Section Code")
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, verbose_name="Department")
+    description = models.TextField(blank=True, null=True, verbose_name="Description")
+    is_active = models.BooleanField(default=True, verbose_name="Active")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = "Section"
+        verbose_name_plural = "Sections"
+        ordering = ['name']
+        db_table = 'sections'
+    
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+
 class CustomUserManager(BaseUserManager):
     """Custom user manager"""
     
@@ -143,7 +163,7 @@ class StaffDetails(models.Model):
     
     staffid = models.CharField(max_length=255, unique=True, verbose_name="Staff ID")
     name = models.CharField(max_length=255, verbose_name="Full Name")
-    section = models.CharField(max_length=255, verbose_name="Section")
+    section = models.ForeignKey(Section, on_delete=models.CASCADE, verbose_name="Section")
     designation = models.CharField(max_length=255, verbose_name="Designation")
     department = models.ForeignKey(Department, on_delete=models.CASCADE, verbose_name="Department", null=True, blank=True)
     weekly_off = models.CharField(max_length=10, choices=WEEKLY_OFF_CHOICES, verbose_name="Weekly Off", default="sun")

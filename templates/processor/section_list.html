@@ -1,0 +1,180 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Section Management{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="page-title-box">
+                <div class="page-title-right">
+                    <ol class="breadcrumb m-0">
+                        <li class="breadcrumb-item"><a href="{% url 'processor:home' %}">Home</a></li>
+                        <li class="breadcrumb-item active">Sections</li>
+                    </ol>
+                </div>
+                <h4 class="page-title">Section Management</h4>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <div class="row align-items-center">
+                        <div class="col">
+                            <h5 class="card-title mb-0">Sections</h5>
+                        </div>
+                        <div class="col-auto">
+                            <a href="{% url 'processor:section_add' %}" class="btn btn-primary">
+                                <i class="mdi mdi-plus"></i> Add Section
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- Filter Form -->
+                    <form method="get" class="mb-4">
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label for="{{ filter_form.name.id_for_label }}" class="form-label">Name</label>
+                                {{ filter_form.name }}
+                            </div>
+                            <div class="col-md-3">
+                                <label for="{{ filter_form.code.id_for_label }}" class="form-label">Code</label>
+                                {{ filter_form.code }}
+                            </div>
+                            <div class="col-md-3">
+                                <label for="{{ filter_form.department.id_for_label }}" class="form-label">Department</label>
+                                {{ filter_form.department }}
+                            </div>
+                            <div class="col-md-3">
+                                <label for="{{ filter_form.is_active.id_for_label }}" class="form-label">Status</label>
+                                {{ filter_form.is_active }}
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="mdi mdi-magnify"></i> Filter
+                                </button>
+                                <a href="{% url 'processor:section_list' %}" class="btn btn-secondary">
+                                    <i class="mdi mdi-refresh"></i> Clear
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+
+                    <!-- Messages -->
+                    {% if messages %}
+                        {% for message in messages %}
+                            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+
+                    <!-- Section Table -->
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Code</th>
+                                    <th>Department</th>
+                                    <th>Description</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for section in section_list %}
+                                <tr>
+                                    <td>{{ section.name }}</td>
+                                    <td><span class="badge bg-secondary">{{ section.code }}</span></td>
+                                    <td>
+                                        <span class="badge bg-info">{{ section.department_name }}</span>
+                                        <small class="text-muted d-block">{{ section.department_code }}</small>
+                                    </td>
+                                    <td>
+                                        {% if section.description %}
+                                            <span class="text-truncate d-inline-block" style="max-width: 200px;" title="{{ section.description }}">
+                                                {{ section.description }}
+                                            </span>
+                                        {% else %}
+                                            <span class="text-muted">No description</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if section.is_active %}
+                                            <span class="badge bg-success">Active</span>
+                                        {% else %}
+                                            <span class="badge bg-danger">Inactive</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ section.created_at|date:"M d, Y" }}</td>
+                                    <td>
+                                        <div class="btn-group" role="group">
+                                            <a href="{% url 'processor:section_edit' section.id %}" class="btn btn-sm btn-outline-primary">
+                                                <i class="mdi mdi-pencil"></i> Edit
+                                            </a>
+                                            <a href="{% url 'processor:section_delete' section.id %}" 
+                                               class="btn btn-sm btn-outline-danger"
+                                               onclick="return confirm('Are you sure you want to delete this section?')">
+                                                <i class="mdi mdi-delete"></i> Delete
+                                            </a>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="7" class="text-center text-muted py-4">
+                                        <i class="mdi mdi-information-outline"></i>
+                                        No sections found.
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pagination -->
+                    {% if is_paginated %}
+                        <nav aria-label="Section pagination">
+                            <ul class="pagination justify-content-center">
+                                {% if page_obj.has_previous %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page=1{% if request.GET.name %}&name={{ request.GET.name }}{% endif %}{% if request.GET.code %}&code={{ request.GET.code }}{% endif %}{% if request.GET.department %}&department={{ request.GET.department }}{% endif %}{% if request.GET.is_active %}&is_active={{ request.GET.is_active }}{% endif %}">First</a>
+                                    </li>
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if request.GET.name %}&name={{ request.GET.name }}{% endif %}{% if request.GET.code %}&code={{ request.GET.code }}{% endif %}{% if request.GET.department %}&department={{ request.GET.department }}{% endif %}{% if request.GET.is_active %}&is_active={{ request.GET.is_active }}{% endif %}">Previous</a>
+                                    </li>
+                                {% endif %}
+
+                                <li class="page-item active">
+                                    <span class="page-link">
+                                        Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+                                    </span>
+                                </li>
+
+                                {% if page_obj.has_next %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if request.GET.name %}&name={{ request.GET.name }}{% endif %}{% if request.GET.code %}&code={{ request.GET.code }}{% endif %}{% if request.GET.department %}&department={{ request.GET.department }}{% endif %}{% if request.GET.is_active %}&is_active={{ request.GET.is_active }}{% endif %}">Next</a>
+                                    </li>
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% if request.GET.name %}&name={{ request.GET.name }}{% endif %}{% if request.GET.code %}&code={{ request.GET.code }}{% endif %}{% if request.GET.department %}&department={{ request.GET.department }}{% endif %}{% if request.GET.is_active %}&is_active={{ request.GET.is_active }}{% endif %}">Last</a>
+                                    </li>
+                                {% endif %}
+                            </ul>
+                        </nav>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

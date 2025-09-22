@@ -20,8 +20,8 @@ import psycopg2
 
 logger = logging.getLogger(__name__)
 
-from .models import ProcessedFile, StaffDetails
-from .forms import FileUploadForm, ProcessingOptionsForm, StaffDetailsForm, StaffFilterForm
+from .models import ProcessedFile, StaffDetails, Section, Department
+from .forms import FileUploadForm, ProcessingOptionsForm, StaffDetailsForm, StaffFilterForm, SectionForm, SectionFilterForm
 from .services import ExcelProcessorService
 
 
@@ -472,13 +472,18 @@ class StaffListView(ListView):
         from django.db import connection
         
         # Build the base query
-        query = "SELECT * FROM staff_details"
+        query = """
+            SELECT sd.*, s.name as section_name, s.code as section_code, d.name as department_name, d.code as department_code
+            FROM staff_details sd
+            LEFT JOIN sections s ON sd.section_id = s.id
+            LEFT JOIN departments d ON sd.department_id = d.id
+        """
         params = []
         conditions = []
         
         # Apply department filtering
         if not self.request.user.is_superuser and self.request.user.department:
-            conditions.append("department_id = %s")
+            conditions.append("sd.department_id = %s")
             params.append(self.request.user.department.id)
         elif not self.request.user.is_superuser:
             # User has no department, return empty result
@@ -497,34 +502,34 @@ class StaffListView(ListView):
             priority = filter_form.cleaned_data.get('priority')
             
             if name:
-                conditions.append("name ILIKE %s")
+                conditions.append("sd.name ILIKE %s")
                 params.append(f'%{name}%')
             if staffid:
-                conditions.append("staffid ILIKE %s")
+                conditions.append("sd.staffid ILIKE %s")
                 params.append(f'%{staffid}%')
             if section:
-                conditions.append("section ILIKE %s")
+                conditions.append("s.name ILIKE %s")
                 params.append(f'%{section}%')
             if designation:
-                conditions.append("designation ILIKE %s")
+                conditions.append("sd.designation ILIKE %s")
                 params.append(f'%{designation}%')
             if level is not None:
-                conditions.append("level = %s")
+                conditions.append("sd.level = %s")
                 params.append(level)
             if weekly_off:
-                conditions.append("weekly_off = %s")
+                conditions.append("sd.weekly_off = %s")
                 params.append(weekly_off)
             if type_of_employment:
-                conditions.append("type_of_employment = %s")
+                conditions.append("sd.type_of_employment = %s")
                 params.append(type_of_employment)
             if priority is not None:
-                conditions.append("priority = %s")
+                conditions.append("sd.priority = %s")
                 params.append(priority)
         
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         
-        query += " ORDER BY staffid"
+        query += " ORDER BY sd.staffid"
         
         with connection.cursor() as cursor:
             cursor.execute(query, params)
@@ -543,19 +548,24 @@ class StaffCreateView(View):
     template_name = 'processor/staff_form.html'
     
     def get(self, request):
-        form = StaffDetailsForm()
+        # Check if user has a department (superusers are allowed)
+        if not request.user.is_superuser and not request.user.department:
+            messages.error(request, 'You must be assigned to a department to add staff members.')
+            return redirect('processor:staff_list')
+        
+        form = StaffDetailsForm(user=request.user)
         return render(request, self.template_name, {'form': form, 'action': 'Add'})
     
     def post(self, request):
         from django.db import connection
         
-        form = StaffDetailsForm(request.POST)
+        form = StaffDetailsForm(request.POST, user=request.user)
         if form.is_valid():
             try:
                 # Get form data
                 staffid = form.cleaned_data['staffid']
                 name = form.cleaned_data['name']
-                section = form.cleaned_data['section'] or None
+                section_id = form.cleaned_data['section'].id
                 designation = form.cleaned_data['designation'] or None
                 weekly_off = form.cleaned_data['weekly_off']
                 level = form.cleaned_data['level'] or None
@@ -563,10 +573,17 @@ class StaffCreateView(View):
                 priority = form.cleaned_data['priority'] or 1
                 
                 with connection.cursor() as cursor:
+                    # Get the current user's department ID
+                    department_id = request.user.department.id if request.user.department else None
+                    
+                    if not department_id:
+                        messages.error(request, 'You must be assigned to a department to add staff members.')
+                        return render(request, self.template_name, {'form': form, 'action': 'Add'})
+                    
                     cursor.execute("""
-                        INSERT INTO staff_details (staffid, name, section, designation, weekly_off, level, type_of_employment, priority)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    """, [staffid, name, section, designation, weekly_off, level, type_of_employment, priority])
+                        INSERT INTO staff_details (staffid, name, section_id, designation, department_id, weekly_off, level, type_of_employment, priority)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, [staffid, name, section_id, designation, department_id, weekly_off, level, type_of_employment, priority])
                 
                 messages.success(request, 'Staff member added successfully!')
                 return redirect('processor:staff_list')
@@ -589,8 +606,17 @@ class StaffUpdateView(View):
     def get(self, request, staff_id):
         from django.db import connection
         
+        # Build department filter for staff access
+        department_filter = ""
+        params = [staff_id]
+        if not request.user.is_superuser and request.user.department:
+            department_filter = " AND department_id = %s"
+            params.append(request.user.department.id)
+        elif not request.user.is_superuser:
+            raise Http404("Staff member not found")
+        
         with connection.cursor() as cursor:
-            cursor.execute("SELECT * FROM staff_details WHERE id = %s", [staff_id])
+            cursor.execute(f"SELECT * FROM staff_details WHERE id = %s{department_filter}", params)
             row = cursor.fetchone()
             if not row:
                 raise Http404("Staff member not found")
@@ -599,10 +625,10 @@ class StaffUpdateView(View):
             staff_data = dict(zip(columns, row))
         
         # Create form with initial data and staff_id for validation
-        form = StaffDetailsForm(staff_id=staff_id, initial={
+        form = StaffDetailsForm(staff_id=staff_id, user=request.user, initial={
             'staffid': staff_data.get('staffid'),
             'name': staff_data.get('name'),
-            'section': staff_data.get('section'),
+            'section': staff_data.get('section_id'),
             'designation': staff_data.get('designation'),
             'weekly_off': staff_data.get('weekly_off'),
             'level': staff_data.get('level'),
@@ -618,42 +644,58 @@ class StaffUpdateView(View):
     def post(self, request, staff_id):
         from django.db import connection
         
-        form = StaffDetailsForm(request.POST, staff_id=staff_id)
+        form = StaffDetailsForm(request.POST, staff_id=staff_id, user=request.user)
         if form.is_valid():
             try:
+                # Build department filter for staff access
+                department_filter = ""
+                params = [
+                    form.cleaned_data['staffid'],
+                    form.cleaned_data['name'],
+                    form.cleaned_data['section'].id,
+                    form.cleaned_data['designation'],
+                    form.cleaned_data['weekly_off'],
+                    form.cleaned_data['level'],
+                    form.cleaned_data['type_of_employment'],
+                    form.cleaned_data.get('priority') or 1,
+                    staff_id
+                ]
+                
+                if not request.user.is_superuser and request.user.department:
+                    department_filter = " AND department_id = %s"
+                    params.append(request.user.department.id)
+                elif not request.user.is_superuser:
+                    raise Http404("Staff member not found")
+                
                 with connection.cursor() as cursor:
-                    cursor.execute("""
+                    cursor.execute(f"""
                         UPDATE staff_details 
-                        SET staffid = %s, name = %s, section = %s, designation = %s, 
+                        SET staffid = %s, name = %s, section_id = %s, designation = %s, 
                             weekly_off = %s, level = %s, type_of_employment = %s, priority = %s, 
                             updated_at = CURRENT_TIMESTAMP
-                        WHERE id = %s
-                    """, [
-                        form.cleaned_data['staffid'],
-                        form.cleaned_data['name'],
-                        form.cleaned_data['section'],
-                        form.cleaned_data['designation'],
-                        form.cleaned_data['weekly_off'],
-                        form.cleaned_data['level'],
-                        form.cleaned_data['type_of_employment'],
-                        form.cleaned_data.get('priority') or 1,
-                        staff_id
-                    ])
+                        WHERE id = %s{department_filter}
+                    """, params)
                 
                 messages.success(request, 'Staff member updated successfully!')
                 return redirect('processor:staff_list')
             except Exception as e:
                 messages.error(request, f"Error updating staff member: {str(e)}")
         
-        # Get staff data for form
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT * FROM staff_details WHERE id = %s", [staff_id])
-            row = cursor.fetchone()
-            if row:
-                columns = [col[0] for col in cursor.description]
-                staff_data = dict(zip(columns, row))
-            else:
-                staff_data = {}
+        # Get staff data for form (with department filtering)
+        staff_data = {}
+        if request.user.is_superuser or request.user.department:
+            department_filter = ""
+            params = [staff_id]
+            if not request.user.is_superuser and request.user.department:
+                department_filter = " AND department_id = %s"
+                params.append(request.user.department.id)
+            
+            with connection.cursor() as cursor:
+                cursor.execute(f"SELECT * FROM staff_details WHERE id = %s{department_filter}", params)
+                row = cursor.fetchone()
+                if row:
+                    columns = [col[0] for col in cursor.description]
+                    staff_data = dict(zip(columns, row))
         
         return render(request, self.template_name, {
             'form': form, 
@@ -1795,3 +1837,322 @@ def generate_monthly_wages_report(request, file_id):
     except Exception as e:
         logger.error(f"Error generating monthly wages report: {str(e)}")
         return JsonResponse({'error': f'Error generating monthly wages report: {str(e)}'}, status=500)
+
+
+# Section Management Views
+@login_required(login_url='/app/login/')
+def test_section_access(request):
+    """Test view to check if section management is accessible"""
+    from django.db import connection
+    
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM sections")
+            count = cursor.fetchone()[0]
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Section management is accessible. Found {count} sections in database.',
+            'user_is_superuser': request.user.is_superuser,
+            'user_department': str(request.user.department) if request.user.department else None
+        })
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e),
+            'user_is_superuser': request.user.is_superuser,
+            'user_department': str(request.user.department) if request.user.department else None
+        })
+
+@method_decorator(login_required(login_url='/app/login/'), name='dispatch')
+class SectionListView(ListView):
+    """List all sections with filtering capabilities"""
+    template_name = 'processor/section_list.html'
+    context_object_name = 'section_list'
+    paginate_by = 20
+    
+    def get_queryset(self):
+        from django.db import connection
+        
+        # Build the base query
+        query = """
+            SELECT s.*, d.name as department_name, d.code as department_code
+            FROM sections s
+            LEFT JOIN departments d ON s.department_id = d.id
+        """
+        params = []
+        conditions = []
+        
+        # Apply department filtering
+        if not self.request.user.is_superuser and self.request.user.department:
+            conditions.append("s.department_id = %s")
+            params.append(self.request.user.department.id)
+        elif not self.request.user.is_superuser:
+            # User has no department, return empty result
+            return []
+        
+        # Apply filters
+        filter_form = SectionFilterForm(self.request.GET)
+        if filter_form.is_valid():
+            name = filter_form.cleaned_data.get('name')
+            code = filter_form.cleaned_data.get('code')
+            department = filter_form.cleaned_data.get('department')
+            is_active = filter_form.cleaned_data.get('is_active')
+            
+            if name:
+                conditions.append("s.name ILIKE %s")
+                params.append(f'%{name}%')
+            if code:
+                conditions.append("s.code ILIKE %s")
+                params.append(f'%{code}%')
+            if department:
+                conditions.append("s.department_id = %s")
+                params.append(department.id)
+            if is_active:
+                if is_active == 'true':
+                    conditions.append("s.is_active = TRUE")
+                elif is_active == 'false':
+                    conditions.append("s.is_active = FALSE")
+        
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        
+        query += " ORDER BY s.name"
+        
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            columns = [col[0] for col in cursor.description]
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['filter_form'] = SectionFilterForm(self.request.GET)
+        
+        # Set department choices for filter form
+        if self.request.user.is_superuser:
+            context['filter_form'].fields['department'].queryset = Department.objects.filter(is_active=True)
+        elif self.request.user.department:
+            context['filter_form'].fields['department'].queryset = Department.objects.filter(id=self.request.user.department.id)
+        else:
+            context['filter_form'].fields['department'].queryset = Department.objects.none()
+        
+        return context
+
+
+@method_decorator(login_required(login_url='/app/login/'), name='dispatch')
+class SectionCreateView(View):
+    """Create new section"""
+    template_name = 'processor/section_form.html'
+    
+    def get(self, request):
+        # Check if user has a department (superusers are allowed)
+        if not request.user.is_superuser and not request.user.department:
+            messages.error(request, 'You must be assigned to a department to add sections.')
+            return redirect('processor:section_list')
+        
+        form = SectionForm(user=request.user)
+        return render(request, self.template_name, {'form': form, 'action': 'Add'})
+    
+    def post(self, request):
+        from django.db import connection
+        
+        form = SectionForm(request.POST, user=request.user)
+        if form.is_valid():
+            try:
+                # Get form data
+                name = form.cleaned_data['name']
+                code = form.cleaned_data['code']
+                
+                # Handle department - if field is disabled, use user's department
+                if not request.user.is_superuser and request.user.department:
+                    department_id = request.user.department.id
+                else:
+                    department_id = form.cleaned_data['department'].id
+                
+                description = form.cleaned_data.get('description') or None
+                is_active = form.cleaned_data.get('is_active', True)
+                
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        INSERT INTO sections (name, code, department_id, description, is_active)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, [name, code, department_id, description, is_active])
+                
+                messages.success(request, 'Section added successfully!')
+                return redirect('processor:section_list')
+            except Exception as e:
+                messages.error(request, f"Error adding section: {str(e)}")
+                print(f"Error: {str(e)}")  # Debug print
+        else:
+            # Debug: print form errors
+            print(f"Form errors: {form.errors}")
+            messages.error(request, f"Form validation failed: {form.errors}")
+        
+        return render(request, self.template_name, {'form': form, 'action': 'Add'})
+
+
+@method_decorator(login_required(login_url='/app/login/'), name='dispatch')
+class SectionUpdateView(View):
+    """Update existing section"""
+    template_name = 'processor/section_form.html'
+    
+    def get(self, request, section_id):
+        from django.db import connection
+        
+        # Build department filter for section access
+        department_filter = ""
+        params = [section_id]
+        if not request.user.is_superuser and request.user.department:
+            department_filter = " AND s.department_id = %s"
+            params.append(request.user.department.id)
+        elif not request.user.is_superuser:
+            raise Http404("Section not found")
+        
+        with connection.cursor() as cursor:
+            cursor.execute(f"""
+                SELECT s.*, d.name as department_name, d.code as department_code
+                FROM sections s
+                LEFT JOIN departments d ON s.department_id = d.id
+                WHERE s.id = %s{department_filter}
+            """, params)
+            row = cursor.fetchone()
+            if not row:
+                raise Http404("Section not found")
+            
+            columns = [col[0] for col in cursor.description]
+            section_data = dict(zip(columns, row))
+        
+        # Create form with initial data and section_id for validation
+        form = SectionForm(section_id=section_id, user=request.user, initial={
+            'name': section_data.get('name'),
+            'code': section_data.get('code'),
+            'department': section_data.get('department_id'),
+            'description': section_data.get('description'),
+            'is_active': section_data.get('is_active')
+        })
+        
+        # For regular users, ensure the department is set to their department
+        if not request.user.is_superuser and request.user.department:
+            form.fields['department'].initial = request.user.department
+        return render(request, self.template_name, {
+            'form': form, 
+            'action': 'Edit',
+            'section': section_data
+        })
+    
+    def post(self, request, section_id):
+        from django.db import connection
+        
+        form = SectionForm(request.POST, section_id=section_id, user=request.user)
+        if form.is_valid():
+            try:
+                # Build department filter for section access
+                department_filter = ""
+                
+                # Handle department - if field is disabled, use user's department
+                if not request.user.is_superuser and request.user.department:
+                    department_id = request.user.department.id
+                else:
+                    department_id = form.cleaned_data['department'].id
+                
+                params = [
+                    form.cleaned_data['name'],
+                    form.cleaned_data['code'],
+                    department_id,
+                    form.cleaned_data.get('description'),
+                    form.cleaned_data.get('is_active', True),
+                    section_id
+                ]
+                
+                if not request.user.is_superuser and request.user.department:
+                    department_filter = " AND department_id = %s"
+                    params.append(request.user.department.id)
+                elif not request.user.is_superuser:
+                    raise Http404("Section not found")
+                
+                with connection.cursor() as cursor:
+                    cursor.execute(f"""
+                        UPDATE sections 
+                        SET name = %s, code = %s, department_id = %s, description = %s, 
+                            is_active = %s, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = %s{department_filter}
+                    """, params)
+                
+                messages.success(request, 'Section updated successfully!')
+                return redirect('processor:section_list')
+            except Exception as e:
+                messages.error(request, f"Error updating section: {str(e)}")
+        
+        # Get section data for form (with department filtering)
+        section_data = {}
+        if request.user.is_superuser or request.user.department:
+            department_filter = ""
+            params = [section_id]
+            if not request.user.is_superuser and request.user.department:
+                department_filter = " AND s.department_id = %s"
+                params.append(request.user.department.id)
+            
+            with connection.cursor() as cursor:
+                cursor.execute(f"""
+                    SELECT s.*, d.name as department_name, d.code as department_code
+                    FROM sections s
+                    LEFT JOIN departments d ON s.department_id = d.id
+                    WHERE s.id = %s{department_filter}
+                """, params)
+                row = cursor.fetchone()
+                if row:
+                    columns = [col[0] for col in cursor.description]
+                    section_data = dict(zip(columns, row))
+        
+        # For regular users, ensure the department is set to their department
+        if not request.user.is_superuser and request.user.department:
+            form.fields['department'].initial = request.user.department
+        
+        return render(request, self.template_name, {
+            'form': form, 
+            'action': 'Edit',
+            'section': section_data
+        })
+
+
+@login_required(login_url='/app/login/')
+@require_http_methods(["GET", "POST", "DELETE"])
+def delete_section(request, section_id):
+    """Delete a section"""
+    from django.db import connection
+    
+    # Build department filter for section access
+    department_filter = ""
+    params = [section_id]
+    if not request.user.is_superuser and request.user.department:
+        department_filter = " AND department_id = %s"
+        params.append(request.user.department.id)
+    elif not request.user.is_superuser:
+        raise Http404("Section not found")
+    
+    # Check if section exists and user has access
+    with connection.cursor() as cursor:
+        cursor.execute(f"SELECT id FROM sections WHERE id = %s{department_filter}", params)
+        section = cursor.fetchone()
+        if not section:
+            raise Http404("Section not found")
+    
+    # Check if section is being used by staff
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) FROM staff_details WHERE section_id = %s", [section_id])
+        staff_count = cursor.fetchone()[0]
+        if staff_count > 0:
+            messages.error(request, f"Cannot delete section. It is being used by {staff_count} staff member(s).")
+            return redirect('processor:section_list')
+    
+    # Allow GET to act as a redirect-safe confirmationless delete fallback
+    if request.method in ["POST", "DELETE", "GET"]:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM sections WHERE id = %s", [section_id])
+            
+            messages.success(request, 'Section deleted successfully!')
+        except Exception as e:
+            messages.error(request, f"Error deleting section: {str(e)}")
+    
+    return redirect('processor:section_list')
